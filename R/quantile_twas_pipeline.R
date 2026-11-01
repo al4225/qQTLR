@@ -165,7 +165,7 @@ quantile_twas_pipeline <- function(twas_weights_data,
   }
 
   # Step 1: Harmonize TWAS data
-  twas_data_qced_result <- harmonize_twas(twas_weights_data, ld_meta_file_path, gwas_meta_file,
+  twas_data_qced_result <- .legacy_twas("harmonize_twas")(twas_weights_data, ld_meta_file_path, gwas_meta_file,
                                                     ld_reference_sample_size = ld_reference_sample_size,
                                                     column_file_path = column_file_path, comment_string = comment_string)
   twas_results_db <- lapply(names(twas_weights_data), function(weight_db) {
@@ -202,7 +202,7 @@ quantile_twas_pipeline <- function(twas_weights_data,
         if (length(twas_variants) == 0) {
           return(list(twas_rs_df = data.frame()))
         }
-        twas_rs <- twas_analysis(
+        twas_rs <- .legacy_twas("twas_analysis")(
           twas_data_qced[[weight_db]][["weights_qced"]][[context]][[study]][["weights"]],
           twas_data_qced[[weight_db]][["gwas_qced"]][[study]],
           twas_data_qced[[weight_db]][["LD"]], twas_variants
@@ -210,7 +210,7 @@ quantile_twas_pipeline <- function(twas_weights_data,
         if (is.null(twas_rs)) {
           return(list(twas_rs_df = data.frame()))
         }
-        return(list(twas_rs_df = build_twas_score_row(twas_rs, weight_db, context, study)))
+        return(list(twas_rs_df = .legacy_twas("build_twas_score_row")(twas_rs, weight_db, context, study)))
       })
       twas_context_table <- do.call(rbind, lapply(study_results, function(x) x$twas_rs_df))
       return(list(twas_context_table = twas_context_table))

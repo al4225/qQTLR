@@ -3,12 +3,35 @@
 compute_qvalues              <- NULL
 pval_cauchy                  <- NULL
 drop_collinear_columns       <- NULL
-build_twas_score_row         <- NULL
 parse_variant_id             <- NULL
 filter_variants_by_ld_reference <- NULL
 ld_prune_by_correlation      <- NULL
 ld_clump_by_score            <- NULL
-harmonize_twas               <- NULL
+.pecotmr_legacy              <- NULL
+.pecotmr_legacy_ld           <- NULL
+
+# Evaluate vendored pecotmr code (defs_fn) in a private environment whose parent
+# rebuilds that pecotmr version's NAMESPACE imports (whole packages first, then
+# importFrom), so names resolve as they did there regardless of what is attached.
+# Packages the vendored functions never call are only Suggests: skip if absent.
+.build_legacy_env <- function(defs_fn, imports, parent) {
+  legacy_imports <- new.env(parent = parent)
+  for (pkg in imports$whole) {
+    if (!requireNamespace(pkg, quietly = TRUE)) next
+    for (fn in getNamespaceExports(pkg)) {
+      assign(fn, getExportedValue(pkg, fn), envir = legacy_imports)
+    }
+  }
+  for (pkg in names(imports$from)) {
+    if (!requireNamespace(pkg, quietly = TRUE)) next
+    for (fn in imports$from[[pkg]]) {
+      assign(fn, getExportedValue(pkg, fn), envir = legacy_imports)
+    }
+  }
+  legacy <- new.env(parent = legacy_imports)
+  eval(body(defs_fn), envir = legacy)
+  legacy
+}
 
 .onLoad <- function(libname, pkgname) {
   ns_self <- asNamespace(pkgname)
@@ -35,10 +58,6 @@ harmonize_twas               <- NULL
   bind_from_pecotmr("dropCollinearColumns", "drop_collinear_columns",
     "'dropCollinearColumns' is not available in the installed version of pecotmr")
 
-  # filter_variants_by_ld_reference: renamed to filterVariantsByLdReference.
-  bind_from_pecotmr("filterVariantsByLdReference", "filter_variants_by_ld_reference",
-    "'filterVariantsByLdReference' is not available in the installed version of pecotmr")
-
   # ld_prune_by_correlation: renamed to ldPruneByCorrelation.
   bind_from_pecotmr("ldPruneByCorrelation", "ld_prune_by_correlation",
     "'ldPruneByCorrelation' is not available in the installed version of pecotmr")
@@ -47,9 +66,22 @@ harmonize_twas               <- NULL
   bind_from_pecotmr("ldClumpByScore", "ld_clump_by_score",
     "'ldClumpByScore' is not available in the installed version of pecotmr")
 
-  # harmonize_twas: renamed to harmonizeTwas.
-  bind_from_pecotmr("harmonizeTwas", "harmonize_twas",
-    "'harmonizeTwas' is not available in the installed version of pecotmr")
+  # Legacy pecotmr TWAS helpers (legacy_pecotmr_twas.R, pecotmr 4843e8bd):
+  # pecotmr's harmonizeTwas() is now a deprecation stub, so quantile TWAS uses
+  # the vendored code instead.
+  assign(".pecotmr_legacy",
+         .build_legacy_env(.pecotmr_legacy_twas_defs, .pecotmr_legacy_imports, ns_self),
+         envir = ns_self)
+
+  # Legacy pecotmr 0.6.11 LD-reference filter and variant-ID parser
+  # (legacy_pecotmr_ldfilter.R). Current filterVariantsByLdReference() only reads
+  # LD from genotype files and errors on pre-computed .cor.xz blocks, and current
+  # parseVariantId() returns chrom as "chr2" instead of "2".
+  legacy_ld <- .build_legacy_env(.pecotmr_legacy_ld_defs, .pecotmr_legacy_ld_imports, ns_self)
+  assign(".pecotmr_legacy_ld", legacy_ld, envir = ns_self)
+  assign("filter_variants_by_ld_reference",
+         get("filterVariantsByLdReference", envir = legacy_ld), envir = ns_self)
+  assign("parse_variant_id", get("parseVariantId", envir = legacy_ld), envir = ns_self)
 
   # compute_qvalues: q-value estimation via qvalue package, with FDR fallback.
   assign("compute_qvalues", function(pvals) {
@@ -58,32 +90,4 @@ harmonize_twas               <- NULL
       error = function(e) p.adjust(pvals, method = "fdr")
     )
   }, envir = ns_self)
-
-  # build_twas_score_row: not in current pecotmr; used only in the TWAS
-  # pipeline path which is not called when --no-twas-weight-calculate is set.
-  assign("build_twas_score_row", function(...) stop(
-    "'build_twas_score_row' is not available in the installed version of pecotmr"
-  ), envir = ns_self)
-
-  # parse_variant_id was renamed to parseVariantId in pecotmr; provide a
-  # snake_case alias that calls the camelCase version, with column-name
-  # normalisation so callers expecting $chrom/$pos/$A2/$A1 still work.
-  parse_variant_id_fn <- tryCatch(
-    utils::getFromNamespace("parseVariantId", "pecotmr"),
-    error = function(e) NULL
-  )
-  if (!is.null(parse_variant_id_fn)) {
-    alias <- function(ids) {
-      res <- parse_variant_id_fn(ids)
-      if (is.data.frame(res) && !"chrom" %in% names(res)) {
-        if ("CHR" %in% names(res)) names(res)[names(res) == "CHR"] <- "chrom"
-      }
-      res
-    }
-    assign("parse_variant_id", alias, envir = ns_self)
-  } else {
-    assign("parse_variant_id", function(...) stop(
-      "'parseVariantId' is not available in the installed version of pecotmr"
-    ), envir = ns_self)
-  }
 }

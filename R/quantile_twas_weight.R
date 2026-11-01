@@ -65,6 +65,11 @@ qr_screen <- function(
       xstar <- x
     }
 
+    # A SNP with no variation left after adjusting for covariates (e.g. monomorphic
+    # in the analyzed samples) has zero score variance; leave its p-values as NA.
+    xstar_ss <- sum(xstar^2)
+    if (!is.finite(xstar_ss) || xstar_ss <= 1e-10 * sum(x^2)) next
+
     SN <- NULL
     for (itau in 1:ltau) {
       Sn <- as.matrix(t(xstar) %*% ranks_list[[itau]])
@@ -76,19 +81,15 @@ qr_screen <- function(
     names(pvalue1) <- tau.list
     quantile.pvalue[ip, ] <- pvalue1
     quantile.zscore[ip, ] <- z_score
-    e <- solve(chol(VN2))
-    SN2 <- t(e) %*% SN
-    pvalue <- pchisq(sum(SN2^2), ltau, lower.tail = FALSE)
-    pvec[ip] <- pvalue
   }
 
   pvec <- apply(quantile.pvalue, 1, pval_cauchy)
 
   if (screen_method == "fdr") {
-    adjusted_pvalues <- p.adjust(pvec)
+    adjusted_pvalues <- p.adjust(pvec, method = "BH")
     method_col_name <- "fdr_p_qr"
     method_quantile_names <- paste0("fdr_p_qr_", tau.list)
-    quantile_adjusted_pvalues <- apply(quantile.pvalue, 2, p.adjust)
+    quantile_adjusted_pvalues <- apply(quantile.pvalue, 2, p.adjust, method = "BH")
   } else if (screen_method == "qvalue") {
     adjusted_pvalues <- compute_qvalues(pvec)
     method_col_name <- "qvalue_qr"
@@ -344,7 +345,7 @@ calculate_qr_and_pseudo_R2 <- function(AssocData, tau.list, strategy = c("correl
   }
   strategy <- match.arg(strategy)
   # Check and handle problematic columns affecting the full rank of the design matrix
-  AssocData$X.filter <- pecotmr:::enforceDesignFullRank(X = AssocData$X.filter, C = AssocData$C, strategy = strategy, response = AssocData$Y, corr_thresholds = corr_thresholds)
+  AssocData$X.filter <- pecotmr:::enforceDesignFullRank(X = AssocData$X.filter, C = AssocData$C, strategy = strategy, response = AssocData$Y, corrThresholds = corr_thresholds)
   snp_names <- colnames(AssocData$X.filter)
   # Build the cleaned design matrix using the filtered X and unnamed C
 
